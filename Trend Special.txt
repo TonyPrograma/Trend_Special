@@ -1,0 +1,384 @@
+//@version=5
+//author: Tony Programa
+indicator("Super Ttend", shorttitle = "@Tony_Porgrama", overlay = true, max_lines_count = 500, max_labels_count = 500)
+
+//INPUTS
+var GRP1 = "Parameters TMA"
+HalfLength_TMA      = input.int(56, "HalfLength TMA", group = GRP1)
+Price_TMA           = input(hlcc4, title = "Price of TMA", group = GRP1)
+BandsDeviation_TMA  = input.float(2.5, "Bansd Deviation TMA", group = GRP1)
+
+//VARIABLES
+float tmac = na
+float tmau = na
+float tmad = na
+
+var float pastTmac = na //from the previous candle
+var float pastTmau = na
+var float pastTmad = na
+
+float tmau_temp = na //before looping
+float tmac_temp = na
+float tmad_temp = na
+
+float wuBuffer = na
+float wdBuffer = na
+
+float point = syminfo.pointvalue //NEEDS MORE TESTS
+bool last = false //checks if a loop is needed
+
+var GRP2 = "Parameters MacLag"
+Price_MacLag            = input(close, title = "Price of MacLag", group = GRP2)
+Length_MacLag           = input(15, title = "Length of MacLag", group = GRP2)
+Displace_MacLag         = input(0, title = "Displace of MacLag", group = GRP2)
+PctFilter_MacLag        = input(1.0, title = "PctFilter of MacLag", group = GRP2)
+Deviation_MacLag        = input(0.0, title = "Deviation of MacLag", group = GRP2)
+int Color_MacLag        = input(1, title = "Color of MacLag", group = GRP2)
+
+
+var float Weight            = 0 //Only a number
+var bool Enter              = true 
+var int Phase               = Length_MacLag-1
+var int Len                 = Length_MacLag*4 + Phase
+var float coeff             = 3*math.pi
+var alfa = array.new<float>(size = Len, initial_value = 0)
+
+float sum_MacLag        = na
+float MABuffer          = na
+var color color_line    = na
+float Del               = na
+float AvgDel            = na
+float Filter_Value      = na
+float Paso              = na
+
+var GRP3 = "3 Levels Wraith"
+delta_3_Level       = input.int(defval = 10, title = "delta", group = GRP3)
+period_1_3_level    = input.int(defval = 5, title = "Period 1", group = GRP3)
+period_2_3_level    = input.int(defval = 13, title = "Period 2", group = GRP3)
+period_3_3_level    = input.int(defval = 34, title = "Period 3", group = GRP3)
+Dev_Step_1          = input.string(defval = "1.3", title = "Dev_Step_1", group = GRP3)
+Dev_Step_2          = input.string(defval = "8.5", title = "Dev_Step_2", group = GRP3)
+Dev_Step_3          = input.string(defval = "13.8", title = "Dev_Step_3", group = GRP3)
+Color_Period_1      = input.color(defval = color.yellow, title = "Color of Period 1", group = GRP3)
+Color_Period_2      = input.color(defval = color.blue, title = "Color of Period 2", group = GRP3)
+Color_Period_3      = input.color(defval = color.red, title = "Color of Period 3", group = GRP3)
+
+
+var int Dev1        = na
+var int Stp1        = na
+var int Dev2        = na
+var int Stp2        = na
+var int Dev3        = na
+var int Stp3        = na
+var float Point     = na
+
+float Values_Low1 = na
+float Values_Low2 = na
+float Values_Low3 = na
+float Values_High1 = na
+float Values_High2 = na
+float Values_High3 = na
+
+///-----period_1-----\\\
+//---Low
+var float val_low1          = na
+var float lastlow1          = na
+float Graph_low1            = na
+
+//---High
+var float val_high1         = na
+var float lasthigh1         = na
+float Graph_high1           = na
+
+///-----period_2-----\\\
+//---Low
+var float val_low2          = na
+var float lastlow2          = na
+float Graph_low2            = na
+
+//---High
+var float val_high2         = na
+var float lasthigh2         = na
+float Graph_high2           = na
+
+///-----period_3-----\\\
+//---Low
+var float val_low3          = na
+var float lastlow3          = na
+float Graph_low3            = na
+
+//---High
+var float val_high3         = na
+var float lasthigh3         = na
+float Graph_high3           = na
+
+
+//CLEAR LINES
+a_allLines = line.all
+if array.size(a_allLines) > 0
+    for p = 0 to array.size(a_allLines) - 1
+        line.delete(array.get(id = a_allLines, index = p))
+
+
+if Enter 
+    //Section of Mac Lag
+    float g  = 0
+    float t  = 0
+    Enter := false
+    for i = 0 to Len -1
+        if i <= Phase - 1
+            t := 1*i/(Phase - 1)
+        else
+            t := 1 + (i - Phase + 1)
+
+        beta = math.cos(math.pi*t)
+
+        if t <= 0.5
+            g := 1
+        else
+            g := 1/(coeff*t+1)
+
+        array.set(id = alfa, index = i, value = (g * beta)) 
+        Weight += g * beta
+    
+    //Section of 3 Levels Wraith
+    Position_Decimal = str.pos(Dev_Step_1, ".")
+    Position_Decimal_1 = str.pos(Dev_Step_1, ",")
+
+    if Position_Decimal_1 > Position_Decimal 
+        Position_Decimal := Position_Decimal_1
+
+    Dev1 := math.floor(str.tonumber(str.substring(Dev_Step_1, 0, Position_Decimal)))
+    Stp1 := math.floor(str.tonumber(str.substring(Dev_Step_1, Position_Decimal+1)))
+
+    Dev2 := math.floor(str.tonumber(str.substring(Dev_Step_2, 0, Position_Decimal)))
+    Stp2 := math.floor(str.tonumber(str.substring(Dev_Step_2, Position_Decimal+1)))
+
+    Dev3 := math.floor(str.tonumber(str.substring(Dev_Step_3, 0, Position_Decimal)))
+    Stp3 := math.floor(str.tonumber(str.substring(Dev_Step_3, Position_Decimal+1)))
+
+    string precio_str = str.tostring(close) 
+    int position = str.pos(precio_str, ".")
+    int number_digits = str.length(str.substring(precio_str, position + 1))
+    
+    Point := 1/(math.pow(10,number_digits))
+
+price = ta.wma(Price_MacLag,1)
+
+
+if bar_index > Len
+    sum_MacLag := 0
+    for i=0 to Len - 1
+        sum_MacLag += array.get(id = alfa, index = i) * price[i]
+
+    if Weight > 0
+        MABuffer := (1+Deviation_MacLag/100)*sum_MacLag/Weight
+
+    float Filter = 0
+    if PctFilter_MacLag > 0
+        Del := MABuffer - MABuffer[1]
+        float sumdel = 0
+
+        for i = 0 to Length_MacLag - 1
+            sumdel += Del[1]
+        
+        AvgDel := sumdel/Length_MacLag
+        float sumpow = 0
+
+        for i = 0 to Length_MacLag - 1
+            sumpow := math.pow((Del[i]-AvgDel[i]),2)
+
+        float StdDev = math.sqrt(sumpow/Length_MacLag) 
+        Filter := PctFilter_MacLag * StdDev
+
+        if math.abs(MABuffer - MABuffer[1]) < Filter
+            MABuffer := MABuffer[1] 
+    
+    if Color_MacLag > 0
+        if MABuffer - MABuffer[1] >= Filter
+            color_line := #3ed9f5
+        else
+            color_line := #c90ccf  
+    else
+        color_line := color.orange
+
+//MAIN
+FullLength = 2*HalfLength_TMA + 1
+value1 = ta.sma(Price_TMA,HalfLength_TMA)
+value = ta.sma(Price_TMA,1)
+
+
+for i = HalfLength_TMA to 0
+
+    sum = (HalfLength_TMA + 1) * value[i]
+    sumw = (HalfLength_TMA + 1)
+    k = HalfLength_TMA
+    for j = 1 to HalfLength_TMA
+        sum += k * value[i + j]
+        sumw += k
+        if (j <= i)
+            sum  += k * value[i - j]
+            sumw += k
+        k -= 1
+    tmac := sum/sumw
+
+    diff = value1[i] - tmac
+    if i > (bar_index - HalfLength_TMA - 1)
+        continue
+
+    if i == (bar_index - HalfLength_TMA - 1)
+        if diff >= 0
+            wuBuffer := math.pow(diff,2)
+            wdBuffer := 0
+        else
+            wdBuffer := math.pow(diff,2)
+            wuBuffer := 0
+        continue
+
+    if diff >= 0
+        wuBuffer := (wuBuffer[i+1]* (FullLength - 1) +  math.pow(diff,2)) / FullLength
+        wdBuffer := wdBuffer[i+1]* (FullLength - 1) / FullLength
+    else
+        wdBuffer := (wdBuffer[i+1] *(FullLength - 1) + math.pow(diff,2)) / FullLength
+        wuBuffer := wuBuffer[i+1]* (FullLength - 1) / FullLength
+
+    tmau := tmac + (BandsDeviation_TMA * math.sqrt(wdBuffer))    
+    tmad := tmac - (BandsDeviation_TMA * math.sqrt(wuBuffer)) 
+
+
+    //LAST REAL
+    if barstate.islast and i == HalfLength_TMA
+        tmau_temp := tmau
+        tmac_temp := tmac
+        tmad_temp := tmad
+
+    //DRAW HANDICAPPED BANDS
+    if barstate.islast 
+        line.new(bar_index - (i + 1), pastTmau, bar_index - (i), tmau, width = 1,  color = color.red)
+        line.new(bar_index - (i + 1), pastTmac, bar_index - (i), tmac, width = 1,  color = color.gray, style = line.style_dotted)
+        line.new(bar_index - (i + 1), pastTmad, bar_index - (i), tmad, width = 1,  color = color.green)
+        
+    //SAVE HISTORY
+    pastTmac := tmac
+    pastTmau := tmau
+    pastTmad := tmad
+    
+    //LOOP IS ONLY FOR HANDICAPPED
+    if barstate.islast != true
+        break
+
+ ///3 Levels Wraith
+if bar_index > period_1_3_level and period_1_3_level > 0
+    ///----------Low values----------\\\
+    val_low1 := ta.lowest(period_1_3_level)
+    if val_low1 == lastlow1
+        val_low1 := 0
+    else
+        lastlow1 := val_low1
+        if (low - val_low1) > (Dev1 * Point)
+            val_low1 := 0
+        else
+            for i = 1 to Stp1
+                float res =  Graph_low1[i]
+                if res != 0 and res >  Graph_low1
+                    1
+    if val_low1 > 0    
+        Graph_low1 := val_low1 - (delta_3_Level * Point)
+    
+    ///----------High values----------\\\
+    val_high1:= ta.highest(period_1_3_level)
+    if val_high1 == lasthigh1
+        val_high1 := 0
+    else
+        lasthigh1 := val_high1
+        if (val_high1 - high) > (Dev1 * Point)
+            val_high1 := 0
+        else
+            for i = 1 to Stp1
+                float res =  Graph_high1[i]
+                if res != 0 and res <  Graph_high1
+                    1
+    if val_high1 > 0                
+        Graph_high1 := val_high1 + (delta_3_Level * Point)
+
+
+if bar_index > period_2_3_level and period_2_3_level > 0
+    ///----------Low values----------\\\
+    val_low2 := ta.lowest(period_2_3_level)
+    if val_low2 == lastlow2
+        val_low2 := 0
+    else
+        lastlow2 := val_low2
+        if (low - val_low2) > (Dev2 * Point)
+            val_low2 := 0
+        else
+            for i = 1 to Stp2
+                float res =  Graph_low2[i]
+                if res != 0 and res >  Graph_low2
+                    1
+    if val_low2 > 0
+        Graph_low2 := val_low2 - (delta_3_Level * Point)
+    
+    ///----------High values----------\\\
+    val_high2:= ta.highest(period_2_3_level)
+    if val_high2 == lasthigh2
+        val_high2 := 0
+    else
+        lasthigh2 := val_high2
+        if (val_high2 - high) > (Dev2 * Point)
+            val_high2 := 0
+        else
+            for i = 1 to Stp2
+                float res =  Graph_high2[i]
+                if res != 0 and res <  Graph_high2
+                    1
+    if val_high2 > 0
+        Graph_high2 := val_high2 + (delta_3_Level * Point)
+
+
+if bar_index > period_3_3_level and period_3_3_level > 0
+    ///----------Low values----------\\\
+    val_low3 := ta.lowest(period_3_3_level)
+    if val_low3 == lastlow3
+        val_low3 := 0
+    else
+        lastlow3 := val_low3
+        if (low - val_low3) > (Dev3 * Point)
+            val_low3 := 0
+        else
+            for i = 1 to Stp3
+                float res =  Graph_low3[i]
+                if res != 0 and res >  Graph_low3
+                    1
+    if val_low3 > 0
+        Graph_low3 := val_low3 - (delta_3_Level * Point)
+    
+
+    ///----------High values----------\\\
+    val_high3:= ta.highest(period_3_3_level)
+    if val_high3 == lasthigh3
+        val_high3 := 0
+    else
+        lasthigh3 := val_high3
+        if (val_high3 - high) > (Dev3 * Point)
+            val_high3 := 0
+        else
+            for i = 1 to Stp3
+                float res =  Graph_high3[i]
+                if res != 0 and res <  Graph_high3
+                    1
+    if val_high3 > 0
+        Graph_high3 := val_high3 + (delta_3_Level * Point)
+
+
+//DRAW REAL BANDS
+plot(last ? tmau_temp : tmau, title = "TMA Up", color = color.red, linewidth=1, style = plot.style_line, offset = -HalfLength_TMA)
+plot(last ? tmac_temp : tmac, title = "TMA Mid", color = color.gray, linewidth=1, style = plot.style_circles, offset = -HalfLength_TMA)
+plot(last ? tmad_temp : tmad, title = "TMA Down", color = color.green, linewidth=1, style = plot.style_line, offset = -HalfLength_TMA)
+plot(MABuffer, color = color_line, linewidth = 2, style = plot.style_line)
+plotshape(Graph_low1 > 0 ? Graph_low1 : na, color = Color_Period_1, style = shape.circle, location = location.belowbar)
+plotshape(Graph_high1> 0 ? Graph_high1 : na, color = Color_Period_1, style = shape.circle)
+plotshape(Graph_low2 > 0 ? Graph_low2 : na, color = Color_Period_2, style = shape.circle, location = location.belowbar, size = size.tiny)
+plotshape(Graph_high2> 0 ? Graph_high2 : na, color = Color_Period_2, style = shape.circle, size = size.tiny)
+plotshape(Graph_low3 > 0 ? Graph_low3 : na, color = Color_Period_3, style = shape.circle, location = location.belowbar, size = size.small)
+plotshape(Graph_high3> 0 ? Graph_high3 : na, color = Color_Period_3, style = shape.circle, size = size.small)
